@@ -503,6 +503,7 @@ export async function startGatewayServer(
     removeChatRun,
     chatAbortControllers,
     toolEventRecipients,
+    closeCoachUsageStorage,
   } = await startupTrace.measure("runtime.state", () =>
     createGatewayRuntimeState({
       cfg: cfgAtStart,
@@ -611,6 +612,7 @@ export async function startGatewayServer(
       wss,
       httpServer,
       httpServers,
+      closeCoachUsageStorage,
     });
   const closeOnStartupFailure = async () => {
     await runClosePrelude();

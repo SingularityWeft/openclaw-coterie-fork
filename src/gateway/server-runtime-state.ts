@@ -6,6 +6,11 @@ import type { CliDeps } from "../cli/deps.types.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import type { PluginRegistry } from "../plugins/registry.js";
 import {
+  createCoachUsageHttpRequestHandler,
+  createCoachUsageStorage,
+  type CoachUsageStorage,
+} from "../coach-usage/index.js";
+import {
   pinActivePluginChannelRegistry,
   pinActivePluginHttpRouteRegistry,
   releasePinnedPluginChannelRegistry,
@@ -104,6 +109,7 @@ export async function createGatewayRuntimeState(params: {
   ) => ChatRunEntry | undefined;
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   toolEventRecipients: ReturnType<typeof createToolEventRecipientRegistry>;
+  closeCoachUsageStorage?: () => Promise<void>;
 }> {
   pinActivePluginHttpRouteRegistry(params.pluginRegistry);
   if (params.pinChannelRegistry !== false) {
@@ -111,6 +117,7 @@ export async function createGatewayRuntimeState(params: {
   } else {
     releasePinnedPluginChannelRegistry();
   }
+  let coachUsageStorage: CoachUsageStorage | null = null;
   try {
     let canvasHost: CanvasHostHandler | null = null;
     if (params.canvasHostEnabled) {
@@ -148,6 +155,15 @@ export async function createGatewayRuntimeState(params: {
     const handlePluginRequest = createGatewayPluginRequestHandler({
       registry: params.pluginRegistry,
       log: params.logPlugins,
+    });
+    coachUsageStorage = await createCoachUsageStorage({
+      databaseUrl: process.env.DATABASE_URL,
+      log: params.log,
+    });
+    const handleCoachUsageRequest = createCoachUsageHttpRequestHandler({
+      auth: params.resolvedAuth,
+      storage: coachUsageStorage,
+      trustedProxies: params.cfg.gateway?.trustedProxies,
     });
     const shouldEnforcePluginGatewayAuth = (pathContext: PluginRoutePathContext): boolean => {
       return shouldEnforceGatewayAuthForPluginPath(
@@ -193,6 +209,7 @@ export async function createGatewayRuntimeState(params: {
         openResponsesConfig: params.openResponsesConfig,
         strictTransportSecurityHeader: params.strictTransportSecurityHeader,
         handleHooksRequest,
+        handleCoachUsageRequest,
         handlePluginRequest,
         shouldEnforcePluginGatewayAuth,
         resolvedAuth: params.resolvedAuth,
@@ -300,8 +317,16 @@ export async function createGatewayRuntimeState(params: {
       removeChatRun,
       chatAbortControllers,
       toolEventRecipients,
+      closeCoachUsageStorage: coachUsageStorage.close,
     };
   } catch (err) {
+    if (coachUsageStorage?.close) {
+      try {
+        await coachUsageStorage.close();
+      } catch {
+        /* ignore */
+      }
+    }
     releasePinnedPluginHttpRouteRegistry(params.pluginRegistry);
     releasePinnedPluginChannelRegistry();
     throw err;

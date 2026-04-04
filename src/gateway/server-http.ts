@@ -880,6 +880,7 @@ export function createGatewayHttpServer(opts: {
   openResponsesConfig?: import("../config/types.gateway.js").GatewayHttpResponsesConfig;
   strictTransportSecurityHeader?: string;
   handleHooksRequest: HooksRequestHandler;
+  handleCoachUsageRequest?: HooksRequestHandler;
   handlePluginRequest?: PluginHttpRequestHandler;
   shouldEnforcePluginGatewayAuth?: (pathContext: PluginRoutePathContext) => boolean;
   resolvedAuth: ResolvedGatewayAuth;
@@ -901,6 +902,7 @@ export function createGatewayHttpServer(opts: {
     openResponsesConfig,
     strictTransportSecurityHeader,
     handleHooksRequest,
+    handleCoachUsageRequest,
     handlePluginRequest,
     shouldEnforcePluginGatewayAuth,
     resolvedAuth,
@@ -948,6 +950,10 @@ export function createGatewayHttpServer(opts: {
         {
           name: "hooks",
           run: () => handleHooksRequest(req, res),
+        },
+        {
+          name: "coach-usage",
+          run: () => (handleCoachUsageRequest ? handleCoachUsageRequest(req, res) : false),
         },
       ];
       if (openAiCompatEnabled && isOpenAiModelsPath(requestPath)) {

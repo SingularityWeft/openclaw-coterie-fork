@@ -104,6 +104,7 @@ export function createGatewayCloseHandler(params: {
   wss: WebSocketServer;
   httpServer: HttpServer;
   httpServers?: HttpServer[];
+  closeCoachUsageStorage?: (() => Promise<void>) | null;
 }) {
   return async (opts?: { reason?: string; restartExpectedMs?: number | null }) => {
     try {
@@ -299,6 +300,11 @@ export function createGatewayCloseHandler(params: {
         }
       }
     } finally {
+      try {
+        await params.closeCoachUsageStorage?.();
+      } catch {
+        /* ignore */
+      }
       try {
         params.releasePluginRouteRegistry?.();
       } catch {
