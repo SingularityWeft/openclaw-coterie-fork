@@ -26,6 +26,8 @@ import {
   buildSandboxCreateArgs,
   dockerContainerState,
   execDocker,
+  formatDockerDaemonUnavailableError,
+  isDockerDaemonUnavailable,
   readDockerContainerEnvVar,
   readDockerContainerLabel,
   readDockerNetworkDriver,
@@ -97,6 +99,8 @@ function buildSandboxBrowserResolvedConfig(params: {
     cdpPortRangeEnd: cdpPortRange.end,
     remoteCdpTimeoutMs: 1500,
     remoteCdpHandshakeTimeoutMs: 3000,
+    localLaunchTimeoutMs: 15_000,
+    localCdpReadyTimeoutMs: 8_000,
     actionTimeoutMs: DEFAULT_BROWSER_ACTION_TIMEOUT_MS,
     color: DEFAULT_OPENCLAW_BROWSER_COLOR,
     executablePath: undefined,
@@ -127,6 +131,10 @@ async function ensureSandboxBrowserImage(image: string) {
   });
   if (result.code === 0) {
     return;
+  }
+  const stderr = result.stderr.trim();
+  if (isDockerDaemonUnavailable(stderr)) {
+    throw new Error(formatDockerDaemonUnavailableError(stderr));
   }
   throw new Error(
     `Sandbox browser image not found: ${image}. Build it with scripts/sandbox-browser-setup.sh.`,

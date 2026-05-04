@@ -77,7 +77,12 @@ async function refreshSessionOptions(state: AppViewState) {
     limit: 0,
     includeGlobal: true,
     includeUnknown: true,
+    showArchived: state.sessionsShowArchived ?? false,
   });
+}
+
+async function refreshVisibleToolsEffectiveForCurrentSessionLazy(state: AppViewState) {
+  return refreshVisibleToolsEffectiveForCurrentSession(state);
 }
 
 function renderChatModelSelect(state: AppViewState) {
@@ -178,12 +183,17 @@ function resolveThinkingLevelOptions(
   if (activeRow?.thinkingLevels?.length) {
     return activeRow.thinkingLevels;
   }
-  if (defaults?.thinkingLevels?.length) {
+  const sessionModelMatchesDefaults =
+    (!activeRow?.modelProvider || activeRow.modelProvider === defaults?.modelProvider) &&
+    (!activeRow?.model || activeRow.model === defaults?.model);
+  if (sessionModelMatchesDefaults && defaults?.thinkingLevels?.length) {
     return defaults.thinkingLevels;
   }
   const labels =
-    activeRow?.thinkingOptions ??
-    defaults?.thinkingOptions ??
+    (activeRow?.thinkingOptions?.length ? activeRow.thinkingOptions : null) ??
+    (sessionModelMatchesDefaults && defaults?.thinkingOptions?.length
+      ? defaults.thinkingOptions
+      : null) ??
     (provider && model ? listThinkingLevelLabels(provider, model) : listThinkingLevelLabels());
   return labels.map((label) => ({
     id: normalizeThinkLevel(label) ?? normalizeLowercaseStringOrEmpty(label),
@@ -278,7 +288,7 @@ async function switchChatModel(state: AppViewState, nextModel: string) {
       key: targetSessionKey,
       model: nextModel || null,
     });
-    void refreshVisibleToolsEffectiveForCurrentSession(state);
+    void refreshVisibleToolsEffectiveForCurrentSessionLazy(state);
     await refreshSessionOptions(state);
   } catch (err) {
     // Roll back so the picker reflects the actual server model.
@@ -530,7 +540,9 @@ export function resolveSessionOptionGroups(
     }
     addOption(row.key);
   }
-  addOption(sessionKey);
+  if (byKey.has(sessionKey)) {
+    addOption(sessionKey);
+  }
 
   for (const group of groups.values()) {
     const counts = new Map<string, number>();

@@ -7,7 +7,7 @@ import type { SidebarContent } from "../sidebar-content.ts";
 import { formatToolDetail, resolveToolDisplay } from "../tool-display.ts";
 import type { ToolCard } from "../types/chat-types.ts";
 import { extractTextCached } from "./message-extract.ts";
-import { isToolResultMessage } from "./message-normalizer.ts";
+import { isToolResultMessage } from "./role-normalizer.ts";
 import { formatToolOutputForSidebar, getTruncatedPreview } from "./tool-helpers.ts";
 
 export type ToolPreview = NonNullable<ToolCard["preview"]>;
@@ -47,6 +47,18 @@ function extractToolText(item: Record<string, unknown>): string | undefined {
   }
   if (typeof item.content === "string") {
     return item.content;
+  }
+  if (Array.isArray(item.content)) {
+    const parts = item.content.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return [];
+      }
+      const text = (entry as { text?: unknown }).text;
+      return typeof text === "string" ? [text] : [];
+    });
+    if (parts.length > 0) {
+      return parts.join("\n");
+    }
   }
   return undefined;
 }
@@ -303,10 +315,14 @@ export function renderToolPreview(
   `;
 }
 
-export function buildSidebarContent(value: string): SidebarContent {
+export function buildSidebarContent(
+  value: string,
+  options?: { rawText?: string | null },
+): SidebarContent {
   return {
     kind: "markdown",
     content: value,
+    ...(options?.rawText ? { rawText: options.rawText } : {}),
   };
 }
 
@@ -363,13 +379,15 @@ function renderToolDataBlock(params: {
         <span class="chat-tool-card__block-icon">${icons.zap}</span>
         <span class="chat-tool-card__block-label">${label}</span>
       </div>
-      ${empty
-        ? html`<div class="chat-tool-card__block-empty muted">${text}</div>`
-        : expanded
-          ? html`<pre class="chat-tool-card__block-content"><code>${text}</code></pre>`
-          : html`<div class="chat-tool-card__block-preview mono">
+      ${
+        empty
+          ? html`<div class="chat-tool-card__block-empty muted">${text}</div>`
+          : expanded
+            ? html`<pre class="chat-tool-card__block-content"><code>${text}</code></pre>`
+            : html`<div class="chat-tool-card__block-preview mono">
               ${getTruncatedPreview(text)}
-            </div>`}
+            </div>`
+      }
     </div>
   `;
 }
@@ -411,9 +429,9 @@ export function renderToolCard(
 
   return html`
     <div
-      class="chat-tool-msg-collapse chat-tool-msg-collapse--manual ${opts.expanded
-        ? "is-open"
-        : ""}"
+      class="chat-tool-msg-collapse chat-tool-msg-collapse--manual ${
+        opts.expanded ? "is-open" : ""
+      }"
     >
       ${renderCollapsedToolSummary({
         label: previewLabel,
@@ -421,8 +439,9 @@ export function renderToolCard(
         expanded: opts.expanded,
         onToggleExpanded: () => opts.onToggleExpanded(card.id),
       })}
-      ${opts.expanded
-        ? html`
+      ${
+        opts.expanded
+          ? html`
             <div class="chat-tool-msg-body">
               ${renderExpandedToolCardContent(
                 card,
@@ -433,7 +452,8 @@ export function renderToolCard(
               )}
             </div>
           `
-        : nothing}
+          : nothing
+      }
     </div>
   `;
 }
@@ -473,8 +493,9 @@ export function renderExpandedToolCardContent(
           <span class="chat-tool-card__icon">${icons[display.icon]}</span>
           <span>${display.label}</span>
         </div>
-        ${canOpenSidebar
-          ? html`
+        ${
+          canOpenSidebar
+            ? html`
               <div class="chat-tool-card__actions">
                 <button
                   class="chat-tool-card__action-btn"
@@ -487,25 +508,30 @@ export function renderExpandedToolCardContent(
                 </button>
               </div>
             `
-          : nothing}
+            : nothing
+        }
       </div>
       ${detail ? html`<div class="chat-tool-card__detail">${detail}</div>` : nothing}
-      ${hasInput
-        ? renderToolDataBlock({
-            label: "Tool input",
-            text: card.inputText!,
-            expanded: true,
-          })
-        : nothing}
-      ${hasOutput
-        ? card.preview
-          ? html`${visiblePreview} ${renderRawOutputToggle(card.outputText!)}`
-          : renderToolDataBlock({
-              label: "Tool output",
-              text: card.outputText!,
+      ${
+        hasInput
+          ? renderToolDataBlock({
+              label: "Tool input",
+              text: card.inputText!,
               expanded: true,
             })
-        : nothing}
+          : nothing
+      }
+      ${
+        hasOutput
+          ? card.preview
+            ? html`${visiblePreview} ${renderRawOutputToggle(card.outputText!)}`
+            : renderToolDataBlock({
+                label: "Tool output",
+                text: card.outputText!,
+                expanded: true,
+              })
+          : nothing
+      }
     </div>
   `;
 }
@@ -539,48 +565,66 @@ export function renderToolCardSidebar(
       @click=${handleClick}
       role=${canClick ? "button" : nothing}
       tabindex=${canClick ? "0" : nothing}
-      @keydown=${canClick
-        ? (e: KeyboardEvent) => {
-            if (e.key !== "Enter" && e.key !== " ") {
-              return;
+      @keydown=${
+        canClick
+          ? (e: KeyboardEvent) => {
+              if (e.key !== "Enter" && e.key !== " ") {
+                return;
+              }
+              e.preventDefault();
+              handleClick?.();
             }
-            e.preventDefault();
-            handleClick?.();
-          }
-        : nothing}
+          : nothing
+      }
     >
       <div class="chat-tool-card__header">
         <div class="chat-tool-card__title">
           <span class="chat-tool-card__icon">${icons[display.icon]}</span>
           <span>${display.label}</span>
         </div>
-        ${canClick
-          ? html`<span class="chat-tool-card__action"
+        ${
+          canClick
+            ? html`<span class="chat-tool-card__action"
               >${hasText || hasPreview ? "View" : ""} ${icons.check}</span
             >`
-          : nothing}
-        ${isEmpty && !canClick
-          ? html`<span class="chat-tool-card__status">${icons.check}</span>`
-          : nothing}
+            : nothing
+        }
+        ${
+          isEmpty && !canClick
+            ? html`<span class="chat-tool-card__status">${icons.check}</span>`
+            : nothing
+        }
       </div>
       ${detail ? html`<div class="chat-tool-card__detail">${detail}</div>` : nothing}
-      ${isEmpty ? html`<div class="chat-tool-card__status-text muted">Completed</div>` : nothing}
-      ${preview
-        ? html`${renderToolPreview(preview, "chat_tool", {
-            onOpenSidebar,
-            rawText: card.outputText,
-            canvasHostUrl,
-            embedSandboxMode,
-          })}`
-        : nothing}
-      ${showCollapsed
-        ? html`<div class="chat-tool-card__preview mono">
+      ${
+        isEmpty
+          ? html`
+              <div class="chat-tool-card__status-text muted">Completed</div>
+            `
+          : nothing
+      }
+      ${
+        preview
+          ? html`${renderToolPreview(preview, "chat_tool", {
+              onOpenSidebar,
+              rawText: card.outputText,
+              canvasHostUrl,
+              embedSandboxMode,
+            })}`
+          : nothing
+      }
+      ${
+        showCollapsed
+          ? html`<div class="chat-tool-card__preview mono">
             ${getTruncatedPreview(card.outputText!)}
           </div>`
-        : nothing}
-      ${showInline
-        ? html`<div class="chat-tool-card__inline mono">${card.outputText}</div>`
-        : nothing}
+          : nothing
+      }
+      ${
+        showInline
+          ? html`<div class="chat-tool-card__inline mono">${card.outputText}</div>`
+          : nothing
+      }
     </div>
   `;
 }

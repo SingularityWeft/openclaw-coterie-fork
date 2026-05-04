@@ -55,11 +55,6 @@ vi.mock("./channel.runtime.js", () => ({
   },
 }));
 
-vi.mock("../../../src/channels/plugins/bundled.js", () => ({
-  bundledChannelPlugins: [],
-  bundledChannelSetupPlugins: [],
-}));
-
 function getDescribedActions(cfg: OpenClawConfig, accountId?: string): string[] {
   return [...(feishuPlugin.actions?.describeMessageTool?.({ cfg, accountId })?.actions ?? [])];
 }
@@ -459,6 +454,34 @@ describe("feishuPlugin actions", () => {
       replyToId: undefined,
     });
     expect(result?.details).toMatchObject({ messageId: "om_media" });
+  });
+
+  it("passes asVoice through media sends", async () => {
+    feishuOutboundSendMediaMock.mockResolvedValueOnce({
+      channel: "feishu",
+      messageId: "om_voice",
+      details: { messageId: "om_voice", chatId: "oc_group_1" },
+    });
+
+    await feishuPlugin.actions?.handleAction?.({
+      action: "send",
+      params: {
+        to: "chat:oc_group_1",
+        media: "https://example.com/reply.mp3",
+        asVoice: true,
+      },
+      cfg,
+      accountId: undefined,
+      toolContext: {},
+      mediaLocalRoots: [],
+    } as never);
+
+    expect(feishuOutboundSendMediaMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mediaUrl: "https://example.com/reply.mp3",
+        audioAsVoice: true,
+      }),
+    );
   });
 
   it("reads messages", async () => {

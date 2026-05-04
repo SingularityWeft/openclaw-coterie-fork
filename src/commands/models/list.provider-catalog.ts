@@ -5,13 +5,15 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
-  loadInstalledPluginIndex,
-  resolveInstalledPluginContributions,
-} from "../../plugins/installed-plugin-index.js";
+  loadPluginRegistrySnapshotWithMetadata,
+  resolvePluginContributionOwners,
+  resolveProviderOwners,
+  type PluginRegistrySnapshot,
+} from "../../plugins/plugin-registry.js";
 import {
   groupPluginDiscoveryProvidersByOrder,
   normalizePluginDiscoveryResult,
-  resolvePluginDiscoveryProviders,
+  resolveRuntimePluginDiscoveryProviders,
   runProviderStaticCatalog,
 } from "../../plugins/provider-discovery.js";
 import {
@@ -35,17 +37,32 @@ function providerMatchesFilter(params: {
   ].some((providerId) => normalizeProviderId(providerId) === params.providerFilter);
 }
 
-function collectMatchingContributionPluginIds(
-  contributions: ReadonlyMap<string, readonly string[]>,
+function collectMatchingContributionOwners(
+  index: PluginRegistrySnapshot,
+  contribution: "providers" | "cliBackends",
   providerFilter: string,
+  cfg: OpenClawConfig,
+  options: { includeDisabled?: boolean } = {},
 ): string[] {
-  const pluginIds: string[] = [];
-  for (const [contributionId, ownerPluginIds] of contributions) {
-    if (normalizeProviderId(contributionId) === providerFilter) {
-      pluginIds.push(...ownerPluginIds);
-    }
+  if (contribution === "providers") {
+    return [
+      ...resolveProviderOwners({
+        index,
+        providerId: providerFilter,
+        includeDisabled: options.includeDisabled,
+        config: cfg,
+      }),
+    ];
   }
-  return [...new Set(pluginIds)].toSorted((left, right) => left.localeCompare(right));
+  return [
+    ...resolvePluginContributionOwners({
+      index,
+      contribution: "cliBackends",
+      matches: (contributionId) => normalizeProviderId(contributionId) === providerFilter,
+      includeDisabled: options.includeDisabled,
+      config: cfg,
+    }),
+  ];
 }
 
 function resolveInstalledIndexPluginIdsForProviderFilter(params: {
@@ -53,18 +70,30 @@ function resolveInstalledIndexPluginIdsForProviderFilter(params: {
   env?: NodeJS.ProcessEnv;
   providerFilter: string;
 }): string[] | undefined {
-  const index = loadInstalledPluginIndex({
+  const snapshot = loadPluginRegistrySnapshotWithMetadata({
     config: params.cfg,
     env: params.env,
   });
-  const contributions = resolveInstalledPluginContributions(index);
+  if (snapshot.source !== "persisted" && snapshot.source !== "provided") {
+    return undefined;
+  }
+  const index = snapshot.snapshot;
   const pluginIds = [
-    ...collectMatchingContributionPluginIds(contributions.providers, params.providerFilter),
-    ...collectMatchingContributionPluginIds(contributions.cliBackends, params.providerFilter),
+    ...collectMatchingContributionOwners(index, "providers", params.providerFilter, params.cfg),
+    ...collectMatchingContributionOwners(index, "cliBackends", params.providerFilter, params.cfg),
   ];
-  return pluginIds.length > 0
-    ? [...new Set(pluginIds)].toSorted((left, right) => left.localeCompare(right))
-    : undefined;
+  if (pluginIds.length > 0) {
+    return [...new Set(pluginIds)].toSorted((left, right) => left.localeCompare(right));
+  }
+  const disabledPluginIds = [
+    ...collectMatchingContributionOwners(index, "providers", params.providerFilter, params.cfg, {
+      includeDisabled: true,
+    }),
+    ...collectMatchingContributionOwners(index, "cliBackends", params.providerFilter, params.cfg, {
+      includeDisabled: true,
+    }),
+  ];
+  return disabledPluginIds.length > 0 ? [] : undefined;
 }
 
 export async function resolveProviderCatalogPluginIdsForFilter(params: {
@@ -127,7 +156,7 @@ export async function hasProviderStaticCatalogForFilter(params: {
   if (scopedPluginIds.length === 0) {
     return false;
   }
-  const providers = await resolvePluginDiscoveryProviders({
+  const providers = await resolveRuntimePluginDiscoveryProviders({
     config: params.cfg,
     env,
     onlyPluginIds: scopedPluginIds,
@@ -197,7 +226,7 @@ export async function loadProviderCatalogModelsForList(params: {
   }
 
   const providers = (
-    await resolvePluginDiscoveryProviders({
+    await resolveRuntimePluginDiscoveryProviders({
       config: params.cfg,
       env,
       onlyPluginIds: scopedPluginIds,
