@@ -64,6 +64,33 @@ describe("tryNativeRequireJavaScriptModule", () => {
     );
   });
 
+  it("declines missing dependency errors when source-transform fallback is available", () => {
+    const dir = makeTempDir();
+    const modulePath = path.join(dir, "plugin.cjs");
+    fs.writeFileSync(modulePath, 'require("openclaw/plugin-sdk");\n', "utf8");
+
+    expect(
+      tryNativeRequireJavaScriptModule(modulePath, {
+        allowWindows: true,
+        fallbackOnMissingDependency: true,
+      }),
+    ).toEqual({ ok: false });
+  });
+
+  it("declines missing dependency errors when the caller can use source transform fallback", () => {
+    const dir = makeTempDir();
+    const modulePath = path.join(dir, "plugin.cjs");
+    fs.writeFileSync(modulePath, 'require("./helper.js");\n', "utf8");
+    fs.writeFileSync(path.join(dir, "helper.ts"), "export const loaded = true;\n", "utf8");
+
+    expect(
+      tryNativeRequireJavaScriptModule(modulePath, {
+        allowWindows: true,
+        fallbackOnNativeError: true,
+      }),
+    ).toEqual({ ok: false });
+  });
+
   it("propagates real module evaluation errors instead of falling back", () => {
     const dir = makeTempDir();
     const modulePath = path.join(dir, "plugin.cjs");
@@ -76,6 +103,23 @@ describe("tryNativeRequireJavaScriptModule", () => {
     expect(() => tryNativeRequireJavaScriptModule(modulePath, { allowWindows: true })).toThrow(
       "plugin exploded during native load",
     );
+  });
+
+  it("declines real module evaluation errors when the caller can use source transform fallback", () => {
+    const dir = makeTempDir();
+    const modulePath = path.join(dir, "plugin.cjs");
+    fs.writeFileSync(
+      modulePath,
+      'throw new Error("plugin exploded during native load");\n',
+      "utf8",
+    );
+
+    expect(
+      tryNativeRequireJavaScriptModule(modulePath, {
+        allowWindows: true,
+        fallbackOnNativeError: true,
+      }),
+    ).toEqual({ ok: false });
   });
 });
 

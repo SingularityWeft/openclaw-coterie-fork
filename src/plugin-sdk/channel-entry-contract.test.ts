@@ -285,7 +285,7 @@ describe("loadBundledEntryExportSync", () => {
   });
 
   it("keeps Windows dist sidecar loads off source-transform loading", async () => {
-    const createJiti = vi.fn(() => vi.fn(() => ({ load: 42 })));
+    const createJiti = vi.fn(() => vi.fn(() => ({ load: 0 })));
     stubPluginModuleLoaderJitiFactory(createJiti as unknown as PluginModuleLoaderFactory);
     const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
 
@@ -300,22 +300,17 @@ describe("loadBundledEntryExportSync", () => {
       fs.mkdirSync(pluginRoot, { recursive: true });
 
       const importerPath = path.join(pluginRoot, "index.js");
-      const helperPath = path.join(pluginRoot, "helper.ts");
+      const helperPath = path.join(pluginRoot, "helper.cjs");
       fs.writeFileSync(importerPath, "export default {};\n", "utf8");
-      fs.writeFileSync(helperPath, "export const load = 42;\n", "utf8");
+      fs.writeFileSync(helperPath, "module.exports = { load: 42 };\n", "utf8");
 
       expect(
         channelEntryContract.loadBundledEntryExportSync<number>(pathToFileURL(importerPath).href, {
-          specifier: "./helper.ts",
+          specifier: "./helper.cjs",
           exportName: "load",
         }),
       ).toBe(42);
-      expect(createJiti).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          tryNative: false,
-        }),
-      );
+      expect(createJiti).not.toHaveBeenCalled();
     } finally {
       platformSpy.mockRestore();
     }
@@ -328,9 +323,8 @@ describe("loadBundledEntryExportSync", () => {
     fs.writeFileSync(openedFdPath, "opened\n", "utf8");
     const jitiLoad = vi.fn(() => ({ load: 42 }));
     const createJiti = vi.fn(() => jitiLoad);
-    stubPluginModuleLoaderJitiFactory(createJiti as unknown as PluginModuleLoaderFactory);
     vi.doMock("../infra/boundary-file-read.js", () => ({
-      openBoundaryFileSync: () => ({
+      openRootFileSync: () => ({
         ok: true,
         path: "C:\\Users\\alice\\openclaw\\dist\\extensions\\feishu\\helper.ts",
         fd: fs.openSync(openedFdPath, "r"),
@@ -350,6 +344,7 @@ describe("loadBundledEntryExportSync", () => {
             specifier: "./helper.ts",
             exportName: "load",
           },
+          { createLoaderForTest: createJiti as never },
         ),
       ).toBe(42);
       expect(jitiLoad).toHaveBeenCalledWith(
